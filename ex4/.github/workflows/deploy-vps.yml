@@ -1,0 +1,50 @@
+name: Deploy Spring Boot Container to VPS
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-image:
+    name: Build & Push Docker Image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and Push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ghcr.io/${{ github.actor }}/my-app:latest
+
+  deploy-vps:
+    name: Deploy to Remote VPS via SSH
+    needs: build-image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Execute deployment commands on VPS via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          script: |
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            docker pull ghcr.io/${{ github.actor }}/my-app:latest
+            docker stop my-app || true
+            docker rm my-app || true
+            docker run -d --name my-app -p 8080:8080 ghcr.io/${{ github.actor }}/my-app:latest
+            docker ps --filter "name=my-app"
